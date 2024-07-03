@@ -222,7 +222,6 @@ struct mt7915_phy {
 	u32 ampdu_ref;
 
 	struct mt76_mib_stats mib;
-	struct mt76_channel_state state_ts;
 
 #ifdef CONFIG_NL80211_TESTMODE
 	struct {

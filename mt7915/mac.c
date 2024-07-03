@@ -1146,10 +1146,15 @@ void mt7915_mac_reset_counters(struct mt7915_phy *phy)
 	memset(phy->mt76->aggr_stats, 0, sizeof(phy->mt76->aggr_stats));
 
 	/* reset airtime counters */
+	mt76_rr(dev, MT_MIB_SDR9(phy));
+	mt76_rr(dev, MT_MIB_SDR36(phy));
+	mt76_rr(dev, MT_MIB_SDR37(phy));
+
+	mt76_set(dev, MT_WF_RMAC_MIB_TIME0(phy->mt76->band_idx),
+		 MT_WF_RMAC_MIB_RXTIME_CLR);
 	mt76_set(dev, MT_WF_RMAC_MIB_AIRTIME0(phy->mt76->band_idx),
 		 MT_WF_RMAC_MIB_RXTIME_CLR);
 
-	mt7915_mcu_get_chan_mib_info(phy, true);
 }
 
 void mt7915_mac_set_timing(struct mt7915_phy *phy)
@@ -1254,19 +1259,34 @@ mt7915_phy_get_nf(struct mt7915_phy *phy, int idx)
 
 void mt7915_update_channel(struct mt76_phy *mphy)
 {
+	struct mt7915_dev *dev = container_of(mphy->dev, struct mt7915_dev, mt76);
 	struct mt7915_phy *phy = mphy->priv;
 	struct mt76_channel_state *state = mphy->chan_state;
-	int nf;
+	u64 busy_time, tx_time, rx_time, obss_time;
+	int nf, idx = mphy->band_idx;
 
-	mt7915_mcu_get_chan_mib_info(phy, false);
+	busy_time = mt76_get_field(dev, MT_MIB_SDR9(idx),
+				   MT_MIB_SDR9_BUSY_MASK);
+	tx_time = mt76_get_field(dev, MT_MIB_SDR36(idx),
+				 MT_MIB_SDR36_TXTIME_MASK);
+	rx_time = mt76_get_field(dev, MT_MIB_SDR37(idx),
+				 MT_MIB_SDR37_RXTIME_MASK);
+	obss_time = mt76_get_field(dev, MT_WF_RMAC_MIB_AIRTIME14(idx),
+				   MT_MIB_OBSSTIME_MASK);
 
-	nf = mt7915_phy_get_nf(phy, phy->mt76->band_idx);
+	nf = mt7915_phy_get_nf(phy, idx);
 	if (!phy->noise)
 		phy->noise = nf << 4;
 	else if (nf)
 		phy->noise += nf - (phy->noise >> 4);
 
+	state->cc_busy += busy_time;
+	state->cc_tx += tx_time;
+	state->cc_rx += rx_time + obss_time;
+	state->cc_bss_rx += rx_time;
 	state->noise = -(phy->noise >> 4);
+
+	mt76_set(dev, MT_WF_RMAC_MIB_TIME0(idx), MT_WF_RMAC_MIB_RXTIME_CLR);
 }
 
 static bool
